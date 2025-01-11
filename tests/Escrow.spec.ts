@@ -355,4 +355,109 @@ describe('Escrow', () => {
             success: true,
         });
     });
+
+    // jetton happy path
+    it('should allow guarator to approve deal after jetton funding', async () => {
+        const dealAmount = toNano(5); // 5 jetton
+
+        // 1 percent guarator royalty
+        const escrowConfig = generateEscrowConfig(
+            beginCell().storeAddress(jettonMinter.address).endCell(),
+            dealAmount,
+            1000,
+        );
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+        const buyerJettonWallet = await userWallet(buyer.address);
+
+        await buyerJettonWallet.sendTransfer(
+            buyer.getSender(),
+            toNano('0.1'),
+            dealAmount,
+            escrowContract.address,
+            buyer.address,
+            null as unknown as Cell,
+            toNano('0.05'),
+            null as unknown as Cell,
+        );
+
+        const guaratorRoyalty = BigInt(await escrowContract.getGuaratorRoyalty());
+
+        const sellerJettonWallet = await userWallet(seller.address);
+        const guarantorJettonWallet = await userWallet(guarantor.address);
+
+        const sellerJettonBalanceBefore = await sellerJettonWallet.getJettonBalance();
+        const guarantorJettonBalanceBefore = await guarantorJettonWallet.getJettonBalance();
+
+        const guaratorAllowResult = await escrowContract.sendApprove(guarantor.getSender(), toNano('0.05'));
+
+        expect(guaratorAllowResult.transactions).toHaveTransaction({
+            from: guarantor.address,
+            to: escrowContract.address,
+            op: ESCROW_OPCODES.approve,
+            success: true,
+        });
+
+        const sellerJettonBalanceAfter = await sellerJettonWallet.getJettonBalance();
+        const guarantorJettonBalanceAfter = await guarantorJettonWallet.getJettonBalance();
+
+        expect(guaratorAllowResult.transactions).toHaveTransaction({
+            to: sellerJettonWallet.address,
+            success: true,
+        });
+
+        expect(sellerJettonBalanceBefore).toEqual(sellerJettonBalanceAfter - (dealAmount - guaratorRoyalty));
+        expect(guarantorJettonBalanceBefore).toEqual(guarantorJettonBalanceAfter - guaratorRoyalty);
+    });
+
+    it('should reject wrong guarator', async () => {
+        const dealAmount = toNano(1); // 1 ton
+
+        // 1 percent guarator royalty
+        const escrowConfig = generateEscrowConfig(null, dealAmount, 1000);
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+
+        await buyer.send({
+            to: escrowContract.address,
+            value: dealAmount,
+            body: beginCell().storeUint(ESCROW_OPCODES.buyerTransfer, 32).endCell(),
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+        });
+
+        // buyer trying to act as guarator
+        const maliciousGuaratorAllowResult = await escrowContract.sendApprove(buyer.getSender(), toNano('0.05'));
+
+        expect(maliciousGuaratorAllowResult.transactions).toHaveTransaction({
+            from: buyer.address,
+            to: escrowContract.address,
+            success: false,
+            exitCode: 403,
+        });
+    });
+
+    it('should reject guarator approve before funding', async () => {
+        const dealAmount = toNano(1); // 1 ton
+
+        // 1 percent guarator royalty
+        const escrowConfig = generateEscrowConfig(null, dealAmount, 1000);
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+
+        // without funding
+        const maliciousGuaratorAllowResult = await escrowContract.sendApprove(guarantor.getSender(), toNano('0.05'));
+
+        expect(maliciousGuaratorAllowResult.transactions).toHaveTransaction({
+            from: guarantor.address,
+            to: escrowContract.address,
+            success: false,
+            exitCode: 403,
+        });
+    });
 });
