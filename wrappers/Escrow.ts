@@ -1,0 +1,110 @@
+import {
+    Address,
+    beginCell,
+    Cell,
+    Contract,
+    contractAddress,
+    ContractProvider,
+    Sender,
+    SendMode,
+    Slice,
+} from '@ton/core';
+import { Maybe } from '@ton/core/dist/utils/maybe';
+
+export type EscrowConfig = {
+    ctxId: number;
+    sellerAddress: Address;
+    guarantorAddress: Address;
+    dealAmount: number;
+    assetAddress: Maybe<Cell>;
+    guarantorRoyaltyPercent: number;
+    jettonWalletCode: Maybe<Cell>;
+};
+
+export const ESCROW_OPCODES = {
+    approve: 0xe8c15681,
+    cancel: 0xcc0f2526,
+    buyerTransfer: 0x9451eca9,
+};
+
+export enum ESCROW_STATE {
+    INIT = 0,
+    FUNDED = 1,
+}
+
+export function escrowConfigToCell(config: EscrowConfig): Cell {
+    return beginCell()
+        .storeUint(config.ctxId, 32)
+        .storeAddress(config.sellerAddress)
+        .storeAddress(config.guarantorAddress)
+        .storeUint(config.dealAmount, 64)
+        .storeMaybeRef(config.assetAddress)
+        .storeUint(config.guarantorRoyaltyPercent, 32)
+        .storeAddress(null)
+        .storeUint(0, 2)
+        .storeMaybeRef(config.jettonWalletCode)
+        .endCell();
+}
+
+export class Escrow implements Contract {
+    constructor(
+        readonly address: Address,
+        readonly init?: { code: Cell; data: Cell },
+    ) {}
+
+    static createFromAddress(address: Address) {
+        return new Escrow(address);
+    }
+
+    static createFromConfig(config: EscrowConfig, code: Cell, workchain = 0) {
+        const data = escrowConfigToCell(config);
+        const init = { code, data };
+        return new Escrow(contractAddress(workchain, init), init);
+    }
+
+    async sendDeploy(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().endCell(),
+        });
+    }
+
+    async sendApprove(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value: value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().storeUint(ESCROW_OPCODES.approve, 32).endCell(),
+        });
+    }
+
+    async sendCancel(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value: value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().storeUint(ESCROW_OPCODES.cancel, 32).endCell(),
+        });
+    }
+
+    async getState(provider: ContractProvider) {
+        const result = await provider.get('get_state', []);
+        return result.stack.readNumber() as ESCROW_STATE;
+    }
+
+    async getEscrowData(provider: ContractProvider) {
+        const result = await provider.get('get_escrow_data', []);
+        const stack = result.stack;
+
+        return {
+            ctxId: stack.readNumber(),
+            sellerAddress: stack.readAddress(),
+            guarantorAddress: stack.readAddress(),
+            dealAmount: stack.readNumber(),
+            assetAddress: stack.readCell(),
+            guarantor_royalty_percent: stack.readNumber(),
+            buyer_address: stack.readAddressOpt(),
+            state: stack.readNumber() as ESCROW_STATE,
+            jetton_wallet_code: stack.readCellOpt(),
+        };
+    }
+}
