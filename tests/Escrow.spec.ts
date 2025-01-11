@@ -6,6 +6,10 @@ import { compile } from '@ton/blueprint';
 import { Maybe } from '@ton/core/dist/utils/maybe';
 import { jettonContentToCell, JettonMinter } from '../wrappers/ft/JettonMinter';
 import { JettonWallet } from '../wrappers/ft/JettonWallet';
+import { Op } from '../wrappers/ft/JettonConstants';
+
+const SECONDS = 1000;
+jest.setTimeout(70 * SECONDS);
 
 describe('Escrow', () => {
     let escrowCode: Cell;
@@ -205,11 +209,150 @@ describe('Escrow', () => {
             null as unknown as Cell,
         );
 
+        expect(jettonFundingResult.transactions).toHaveTransaction({
+            to: escrowContract.address,
+            op: Op.transfer_notification,
+            success: true,
+        });
+
         const stateAfterFunding = await escrowContract.getState();
         expect(stateAfterFunding).toBe(ESCROW_STATE.FUNDED);
 
         const escrowData = await escrowContract.getEscrowData();
         // notice, we set buyer_address as w4/w5 wallet address, not buyers' jetton wallet
         expect(escrowData.buyer_address).toEqualAddress(buyer.address);
+    });
+
+    it('should reject incorrect amount', async () => {
+        const dealAmount = toNano(5); // 5 jetton
+
+        const escrowConfig = generateEscrowConfig(
+            beginCell().storeAddress(jettonMinter.address).endCell(),
+            dealAmount,
+            1000,
+        );
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+
+        const buyerJettonWallet = await userWallet(buyer.address);
+
+        const jettonFundingResult = await buyerJettonWallet.sendTransfer(
+            buyer.getSender(),
+            toNano('0.1'),
+            dealAmount - 1n, // send less jettons than offered
+            escrowContract.address,
+            buyer.address,
+            null as unknown as Cell,
+            toNano('0.05'),
+            null as unknown as Cell,
+        );
+
+        expect(jettonFundingResult.transactions).toHaveTransaction({
+            to: escrowContract.address,
+            op: Op.transfer_notification,
+            success: false,
+            exitCode: 401,
+        });
+
+        const stateAfterFunding = await escrowContract.getState();
+        expect(stateAfterFunding).toBe(ESCROW_STATE.INIT);
+    });
+
+    it('should reject jetton funding from wrong contract', async () => {
+        const dealAmount = toNano(5); // 5 jetton
+
+        const escrowConfig = generateEscrowConfig(
+            beginCell().storeAddress(jettonMinter.address).endCell(),
+            dealAmount,
+            1000,
+        );
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+
+        // malicious jetton buy attempt
+        const maliciousFundingResult = await buyer.send({
+            to: escrowContract.address,
+            value: dealAmount,
+            body: beginCell()
+                .storeUint(Op.transfer_notification, 32)
+                .storeUint(0, 32)
+                .storeCoins(dealAmount)
+                .storeAddress(buyer.address)
+                .endCell(),
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+        });
+
+        expect(maliciousFundingResult.transactions).toHaveTransaction({
+            to: escrowContract.address,
+            aborted: true,
+            exitCode: 402,
+        });
+
+        const stateAfterFunding = await escrowContract.getState();
+        expect(stateAfterFunding).toBe(ESCROW_STATE.INIT);
+    });
+
+    it('should correctly calcuate guarator royalty', async () => {
+        const dealAmount = toNano(1); // 1 ton
+
+        // 1 percent guarator royalty
+        const escrowConfig = generateEscrowConfig(null, dealAmount, 1000);
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+
+        const guaratorRoyalty = await escrowContract.getGuaratorRoyalty();
+
+        // 1 percent
+        expect(BigInt(guaratorRoyalty)).toEqual(dealAmount / 100n);
+    });
+
+    // check ton happy path
+    it('should allow guarator to approve deal after ton funding', async () => {
+        const dealAmount = toNano(1); // 1 ton
+
+        // 1 percent guarator royalty
+        const escrowConfig = generateEscrowConfig(null, dealAmount, 1000);
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+
+        await buyer.send({
+            to: escrowContract.address,
+            value: dealAmount,
+            body: beginCell().storeUint(ESCROW_OPCODES.buyerTransfer, 32).endCell(),
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+        });
+
+        const guaratorRoyalty = BigInt(await escrowContract.getGuaratorRoyalty());
+
+        const guaratorAllowResult = await escrowContract.sendApprove(guarantor.getSender(), toNano('0.05'));
+
+        expect(guaratorAllowResult.transactions).toHaveTransaction({
+            from: guarantor.address,
+            to: escrowContract.address,
+            op: ESCROW_OPCODES.approve,
+            success: true,
+        });
+
+        expect(guaratorAllowResult.transactions).toHaveTransaction({
+            from: escrowContract.address,
+            to: seller.address,
+            value: dealAmount - guaratorRoyalty,
+            success: true,
+        });
+
+        expect(guaratorAllowResult.transactions).toHaveTransaction({
+            from: escrowContract.address,
+            to: guarantor.address,
+            value: (v) => v! >= guaratorRoyalty && v! <= guaratorRoyalty + toNano(1), // in-between check cause 128+32 send mode
+            success: true,
+        });
     });
 });

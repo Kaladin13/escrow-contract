@@ -240,6 +240,11 @@ int get_state() method_id {
     return state;
 }
 
+int get_guarator_royalty() method_id {
+    load_data();
+    return calculate_gauarantor_royalty();
+}
+
 (int, slice, slice, int, slice, int, slice, int, cell) get_escrow_data() method_id {
     load_data();
 

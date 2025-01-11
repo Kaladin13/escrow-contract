@@ -91,6 +91,12 @@ export class Escrow implements Contract {
         return result.stack.readNumber() as ESCROW_STATE;
     }
 
+    async getGuaratorRoyalty(provider: ContractProvider) {
+        const result = await provider.get('get_guarator_royalty', []);
+
+        return result.stack.readNumber();
+    }
+
     async getEscrowData(provider: ContractProvider) {
         const result = await provider.get('get_escrow_data', []);
         const stack = result.stack;
