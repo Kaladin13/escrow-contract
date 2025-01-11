@@ -125,7 +125,7 @@ int calculate_gauarantor_royalty() inline {
                           .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
                        .end_cell();
 
-    send_raw_message(royalty_msg, 128 + 32); ;; send the remaining balance of contract and destroy it
+    send_raw_message(royalty_msg, 128 + 32); ;; send the remaining balance of contract
 }
 
 () handle_approve_jetton() impure {
@@ -148,7 +148,7 @@ int calculate_gauarantor_royalty() inline {
                     .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
                 .end_cell();
 
-    send_raw_message(msg, 128 + 32); ;; refund to buyer and destroy deal
+    send_raw_message(msg, 128 + 32); ;; refund to buyer & send all remaining
 }
 
 () handle_cancell_jetton() impure {
@@ -173,7 +173,7 @@ int calculate_gauarantor_royalty() inline {
     int op = in_msg_body~load_uint(32);
 
     if (op == op::buyer_transfer) {
-        throw_unless(400, state == 0 & slice_empty?(asset_address));
+        throw_unless(400, state == 0 | (~ slice_empty?(asset_address)));
         throw_unless(401, msg_value == deal_amount);
 
         state = 1;
@@ -184,12 +184,12 @@ int calculate_gauarantor_royalty() inline {
     }
 
     if (op == op::transfer_notification()) {
-        throw_unless(400, state == 0 & (~ slice_empty?(asset_address)));
+        throw_unless(400, state == 0 | slice_empty?(asset_address));
         
         in_msg_body~load_uint(64); ;; skip query id
         int jetton_amount = in_msg_body~load_coins();
         slice from_address = in_msg_body~load_msg_addr();
-        ;; TODO: verify our jetton wallet
+        ;; verify escrow jetton wallet
         throw_unless(402,
             equal_slices(
                 calculate_user_jetton_wallet_address(my_address(), asset_address, jetton_wallet_code), 

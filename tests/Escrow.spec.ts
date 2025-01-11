@@ -543,4 +543,38 @@ describe('Escrow', () => {
 
         expect(buyerJettonBalanceBefore).toEqual(buyerJettonBalanceAfter - dealAmount);
     });
+
+    it('should reject wrong asset funding', async () => {
+        const dealAmount = toNano(1); // 1 ton
+
+        // set asset to jetton on deploy
+        const escrowConfig = generateEscrowConfig(
+            beginCell().storeAddress(jettonMinter.address).endCell(),
+            dealAmount,
+            1000,
+        );
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+
+        // try to fund with ton
+        const tonFundingResult = await buyer.send({
+            to: escrowContract.address,
+            value: dealAmount,
+            body: beginCell().storeUint(ESCROW_OPCODES.buyerTransfer, 32).endCell(),
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+        });
+
+        expect(tonFundingResult.transactions).toHaveTransaction({
+            from: buyer.address,
+            to: escrowContract.address,
+            op: ESCROW_OPCODES.buyerTransfer,
+            success: false,
+            exitCode: 400,
+        });
+
+        const stateAfterFunding = await escrowContract.getState();
+        expect(stateAfterFunding).toBe(ESCROW_STATE.INIT);
+    });
 });
