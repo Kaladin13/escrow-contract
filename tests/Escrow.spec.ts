@@ -28,7 +28,6 @@ describe('Escrow', () => {
 
     let blockchain: Blockchain;
     let deployer: SandboxContract<TreasuryContract>;
-    let escrow: SandboxContract<Escrow>;
     let seller: SandboxContract<TreasuryContract>;
     let buyer: SandboxContract<TreasuryContract>;
     let guarantor: SandboxContract<TreasuryContract>;
@@ -58,8 +57,6 @@ describe('Escrow', () => {
     beforeEach(async () => {
         blockchain = await Blockchain.create();
 
-        // escrow = blockchain.openContract(Escrow.createFromConfig({}, code));
-
         deployer = await blockchain.treasury('deployer');
         seller = await blockchain.treasury('seller');
         buyer = await blockchain.treasury('buyer');
@@ -81,15 +78,6 @@ describe('Escrow', () => {
 
         await jettonMinter.sendDeploy(deployer.getSender(), toNano('100'));
         await jettonMinter.sendMint(deployer.getSender(), buyer.address, toNano(100), toNano('0.05'), toNano('1'));
-
-        // const deployResult = await escrow.sendDeploy(deployer.getSender(), toNano('0.05'));
-
-        // expect(deployResult.transactions).toHaveTransaction({
-        //     from: deployer.address,
-        //     to: escrow.address,
-        //     deploy: true,
-        //     success: true,
-        // });
     });
 
     it('should deploy with correct initial state ton', async () => {

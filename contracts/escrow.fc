@@ -3,15 +3,25 @@
 #include "ft/jetton-utils.fc";
 #include "ft/op-codes.fc";
 
-;; params: guarantor_address, buy_amount, guarantor_fee_percent, asset_address, seller_address + state
-;; messages:
-;;      guarantor:
-;;          - accept
-;;          - cancel
-;;      buyer:
-;;          - send funds
-;; flow
-;; deploy -> buyer::send_funds -> guarantor::approve/cancel -> send funds to seller or buyer + royalties
+;; Escrow Smart Contract with TON/Jetton payments
+
+{-
+
+params: guarantor_address, deal_amount, guarantor_fee_percent, asset_address, seller_address
+
+messages:
+    buyer:
+        - send funds
+    guarantor:
+        - accept
+        - cancel
+    anyone:
+        - top up
+
+flow:
+seller::deploy -> buyer::send_funds -> guarantor::approve/cancel -> send funds to seller + royalties or refund
+
+-}
 
 const op::approve = "op::approve"c;
 const op::cancel = "op::cancel"c; 
@@ -110,7 +120,7 @@ int calculate_gauarantor_royalty() inline {
     int royalty = calculate_gauarantor_royalty();
 
     [int balance, _] = get_balance();
-    throw_unless(404, balance > (deal_amount + 2 * send_fee));  ;; check balance for deal amount + fees
+    throw_unless(404, balance > (deal_amount + 2 * send_fee)); ;; check balance for both fees, so we don't abort after first
 
     cell msg = begin_cell()
                   .store_uint(0x10, 6) ;; no bouncable messages
