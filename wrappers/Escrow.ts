@@ -25,6 +25,7 @@ export const ESCROW_OPCODES = {
     approve: 0xe8c15681,
     cancel: 0xcc0f2526,
     buyerTransfer: 0x9451eca9,
+    topUp: 0xae98db22,
 };
 
 export enum ESCROW_STATE {
@@ -83,6 +84,14 @@ export class Escrow implements Contract {
             value: value,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
             body: beginCell().storeUint(ESCROW_OPCODES.cancel, 32).endCell(),
+        });
+    }
+
+    async sendTopUp(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value: value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().storeUint(ESCROW_OPCODES.topUp, 32).endCell(),
         });
     }
 

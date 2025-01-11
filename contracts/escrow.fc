@@ -11,23 +11,26 @@
 ;;      buyer:
 ;;          - send funds
 ;; flow
-;; deploy -> buyer::send_funds -> guarantor::approve/cancel -> send funds to seller or buyer, destroy contract
+;; deploy -> buyer::send_funds -> guarantor::approve/cancel -> send funds to seller or buyer + royalties
 
 const op::approve = "op::approve"c;
 const op::cancel = "op::cancel"c; 
 const op::buyer_transfer = "op::buyer_transfer"c;
+const op::top_up = "op::top_up"c;
 
-const royalties_constant = 1000;
-const data::fee_per_jetton = 50000000; ;; 0.05 ton
+const royalties_constant = 1000; ;; for floating point royalties (up to 3 digits)
+;; gas consumption constants
+const int fee_per_jetton = 50000000; ;; 0.05 ton
+const int send_fee = 15000000; ;; 0.015 TON
 
-global int ctx_id;
+global int ctx_id; ;; for address salt
 global slice seller_address;
 global slice guarantor_address;
 global int deal_amount;
-global slice asset_address;
-global int guarantor_royalty_percent;
-global slice buyer_address;
-global int state; ;; 0 - init, 1 - funds_moved
+global slice asset_address; ;; empty slice to represent ton, minter jetton address otherwise
+global int guarantor_royalty_percent; ;; see calculate_gauarantor_royalty
+global slice buyer_address; ;; initially null, set after funding
+global int state; ;; 0 - init, 1 - funded
 global cell jetton_wallet_code;
 
 () load_data() impure {
@@ -39,7 +42,6 @@ global cell jetton_wallet_code;
     deal_amount = ds~load_uint(64);
 
     cell asset = ds~load_maybe_ref();
-    ;; ~dump(asset);
     if (null?(asset)) {
         ;; construct empty slice
         asset_address = begin_cell().end_cell().begin_parse();
@@ -52,7 +54,7 @@ global cell jetton_wallet_code;
     guarantor_royalty_percent = ds~load_uint(32);
     buyer_address = ds~load_msg_addr();
     state = ds~load_uint(2);
-    jetton_wallet_code = ds~load_maybe_ref(); ;; check ref c4 cell overflow
+    jetton_wallet_code = ds~load_maybe_ref();
 }
 
 () save_data() impure inline {
@@ -77,6 +79,9 @@ global cell jetton_wallet_code;
 }
 
 int calculate_gauarantor_royalty() inline {
+    ;; use royalties_constant (set to 1_000) to represent
+    ;; floating point percents less than 1%
+    ;; e.g. 0,05% actual royalty would be 50 in state_init
     return deal_amount / (100 * royalties_constant) * guarantor_royalty_percent;
 }
 
@@ -86,7 +91,7 @@ int calculate_gauarantor_royalty() inline {
     send_raw_message(begin_cell()
         .store_uint(0x18, 6)
         .store_slice(escrow_jetton_wallet) ;; recepient address
-        .store_coins(data::fee_per_jetton)
+        .store_coins(fee_per_jetton)
         .store_uint(1, 107)
         .store_ref(begin_cell()
             .store_uint(op::transfer(), 32)
@@ -102,13 +107,11 @@ int calculate_gauarantor_royalty() inline {
 }
 
 () handle_approve_ton() impure {
-    ;; 10_000
-    ;; 1 -> 
-    ;; 500 / 100 * (fee * 10_000)
-    ;; 500 / (100 * 10_000) * fee
     int royalty = calculate_gauarantor_royalty();
 
-    ;; throw_unless(404, );  check balance for royalty + fees
+    [int balance, _] = get_balance();
+    throw_unless(404, balance > (deal_amount + 2 * send_fee));  ;; check balance for deal amount + fees
+
     cell msg = begin_cell()
                   .store_uint(0x10, 6) ;; no bouncable messages
                   .store_slice(seller_address)
@@ -131,7 +134,8 @@ int calculate_gauarantor_royalty() inline {
 () handle_approve_jetton() impure {
     int royalty = calculate_gauarantor_royalty();
 
-    ;; throw_unless(404, );  check balance for royalty + fees
+    [int balance, _] = get_balance();
+    throw_unless(404, balance > (2 * fee_per_jetton));
 
     send_tokens(seller_address, deal_amount - royalty, 1);
     send_tokens(guarantor_address, royalty, 128 + 32);
@@ -229,6 +233,10 @@ int calculate_gauarantor_royalty() inline {
             handle_cancell_jetton();
         }
 
+        return ();
+    }
+
+    if (op == op::top_up) {
         return ();
     }
 

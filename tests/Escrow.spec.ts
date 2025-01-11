@@ -577,4 +577,46 @@ describe('Escrow', () => {
         const stateAfterFunding = await escrowContract.getState();
         expect(stateAfterFunding).toBe(ESCROW_STATE.INIT);
     });
+
+    it('should reject low fee approve and accept top up', async () => {
+        const dealAmount = toNano(1); // 1 ton
+
+        const escrowConfig = generateEscrowConfig(null, dealAmount, 1000);
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        // deploy with low initial amount
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.01'));
+
+        await buyer.send({
+            to: escrowContract.address,
+            value: dealAmount,
+            body: beginCell().storeUint(ESCROW_OPCODES.buyerTransfer, 32).endCell(),
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+        });
+
+        // approve with low value
+        const guaratorLowFeeAllowResult = await escrowContract.sendApprove(guarantor.getSender(), toNano('0.01'));
+
+        expect(guaratorLowFeeAllowResult.transactions).toHaveTransaction({
+            from: guarantor.address,
+            to: escrowContract.address,
+            op: ESCROW_OPCODES.approve,
+            success: false,
+            exitCode: 404, // low fee
+        });
+
+        // top up with enouth ton for execution
+        const topUpResult = await escrowContract.sendTopUp(seller.getSender(), toNano('0.1'));
+
+        // approve after topped up
+        const guaratorToppedAllowResult = await escrowContract.sendApprove(guarantor.getSender(), toNano('0.01'));
+
+        expect(guaratorToppedAllowResult.transactions).toHaveTransaction({
+            from: guarantor.address,
+            to: escrowContract.address,
+            op: ESCROW_OPCODES.approve,
+            success: true,
+        });
+    });
 });
