@@ -248,6 +248,135 @@ describe('Escrow', () => {
         expect(stateAfterFunding).toBe(ESCROW_STATE.INIT);
     });
 
+    it('should reject double funding', async () => {
+        const dealAmount = toNano(1); // 1 ton
+
+        const escrowConfig = generateEscrowConfig(null, dealAmount, 1000);
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+
+        await buyer.send({
+            to: escrowContract.address,
+            value: dealAmount,
+            body: beginCell().storeUint(ESCROW_OPCODES.buyerTransfer, 32).endCell(),
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+        });
+
+        const stateAfterFunding = await escrowContract.getState();
+        expect(stateAfterFunding).toBe(ESCROW_STATE.FUNDED);
+
+        const res = await buyer.send({
+            to: escrowContract.address,
+            value: dealAmount,
+            body: beginCell().storeUint(ESCROW_OPCODES.buyerTransfer, 32).endCell(),
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+        });
+
+        expect(res.transactions).toHaveTransaction({
+            to: escrowContract.address,
+            success: false,
+            exitCode: ESCROW_EXIT_CODES.WRONG_ASSET,
+        });
+    });
+
+    it('should change wallet code', async () => {
+        const dealAmount = toNano(1); // 1 ton
+
+        const escrowConfig = generateEscrowConfig(
+            beginCell().storeAddress(jettonMinter.address).endCell(),
+            dealAmount,
+            1000,
+        );
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+
+        const escrowDataBefore = await escrowContract.getEscrowData();
+        expect(escrowDataBefore.jetton_wallet_code).toEqualCell(jwalletCode);
+
+        const newJwalletCode = beginCell().endCell();
+
+        const res = await escrowContract.sendChangeWalletCode(seller.getSender(), toNano('0.05'), newJwalletCode);
+
+        expect(res.transactions).toHaveTransaction({
+            from: seller.address,
+            to: escrowContract.address,
+            op: ESCROW_OPCODES.changeWalletCode,
+            success: true,
+        });
+
+        const escrowDataAfter = await escrowContract.getEscrowData();
+        expect(escrowDataAfter.jetton_wallet_code).toEqualCell(newJwalletCode);
+    });
+
+    it('should reject wallet code change from not seller', async () => {
+        const dealAmount = toNano(1); // 1 ton
+
+        const escrowConfig = generateEscrowConfig(
+            beginCell().storeAddress(jettonMinter.address).endCell(),
+            dealAmount,
+            1000,
+        );
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+
+        const newJwalletCode = beginCell().endCell();
+
+        // buyer not sender
+        const res = await escrowContract.sendChangeWalletCode(buyer.getSender(), toNano('0.05'), newJwalletCode);
+
+        expect(res.transactions).toHaveTransaction({
+            to: escrowContract.address,
+            op: ESCROW_OPCODES.changeWalletCode,
+            success: false,
+            exitCode: ESCROW_EXIT_CODES.INCORRECT_GUARANTOR,
+        });
+    });
+
+    it('should reject wallet code change after funding', async () => {
+        const dealAmount = toNano(1); // 1 ton
+
+        const escrowConfig = generateEscrowConfig(
+            beginCell().storeAddress(jettonMinter.address).endCell(),
+            dealAmount,
+            1000,
+        );
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+
+        // funding
+        const buyerJettonWallet = await userWallet(buyer.address);
+
+        await buyerJettonWallet.sendTransfer(
+            buyer.getSender(),
+            toNano('0.1'),
+            dealAmount,
+            escrowContract.address,
+            buyer.address,
+            null as unknown as Cell,
+            toNano('0.05'),
+            null as unknown as Cell,
+        );
+
+        const newJwalletCode = beginCell().endCell();
+
+        const res = await escrowContract.sendChangeWalletCode(seller.getSender(), toNano('0.05'), newJwalletCode);
+
+        expect(res.transactions).toHaveTransaction({
+            to: escrowContract.address,
+            op: ESCROW_OPCODES.changeWalletCode,
+            success: false,
+            exitCode: ESCROW_EXIT_CODES.WRONG_ASSET,
+        });
+    });
+
     it('should reject jetton funding from wrong contract', async () => {
         const dealAmount = toNano(5); // 5 jetton
 

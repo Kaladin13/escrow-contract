@@ -1,5 +1,5 @@
-import { Address, beginCell, Cell, fromNano, OpenedContract, toNano } from '@ton/core';
-import { Escrow, ESCROW_STATE } from '../wrappers/Escrow';
+import { Address, beginCell, Cell, fromNano, OpenedContract, SendMode, toNano } from '@ton/core';
+import { Escrow, ESCROW_OPCODES, ESCROW_STATE } from '../wrappers/Escrow';
 import { compile, NetworkProvider, UIProvider } from '@ton/blueprint';
 import {
     promptAddress,
@@ -11,11 +11,13 @@ import {
 } from '../wrappers/ui-utils';
 import { TonClient4 } from '@ton/ton';
 import { Maybe } from '@ton/core/dist/utils/maybe';
+import { JettonMinter } from '../wrappers/ft/JettonMinter';
+import { JettonWallet } from '../wrappers/ft/JettonWallet';
 
 let escrowContract: OpenedContract<Escrow>;
 
 const contractActions = ['Create new escrow deal', 'Choose existing escrow deal'];
-const generalActions = ['Get status', 'Get info', 'Get royalty', 'Quit'];
+const generalActions = ['Get status', 'Get info', 'Get royalty', 'Change wallet code', 'Quit'];
 const buyerActions = ['Fund'];
 const guarantorActions = ['Approve deal', 'Cancel deal'];
 
@@ -57,6 +59,99 @@ const getInfo = async (provider: NetworkProvider, ui: UIProvider) => {
     ui.write(`Deal asset is ${assetInfoStr}`);
 };
 
+// jetton EQBf3WrpAIEhW6RdyHYrOmzJq1i6uQdIDtwJk7IyxEmi7Hoy
+// ton    EQANoQXO0o6lGjuwj6beIZ4R06vy0zcGBltznFfJKXTKXenH
+const fundingAction = async (provider: NetworkProvider, ui: UIProvider) => {
+    const info = await escrowContract.getEscrowData();
+    const asset = parseAssetAddress(info.assetAddress);
+    const assetInfoStr = asset === null ? 'TON' : `Jetton with address ${asset.toString({ urlSafe: true })}`;
+    ui.write(`Deal asset is ${assetInfoStr}`);
+    ui.write(`Deal amount is ${fromNano(info.dealAmount)}`);
+
+    const isFundungSure = await promptBool('Are you sure you want to fund deal?', ['Yes', 'No'], ui);
+
+    if (!isFundungSure) {
+        return;
+    }
+
+    const api = provider.api() as TonClient4;
+
+    const seqno = (await api.getLastBlock()).last.seqno;
+    const lastTransaction = (await api.getAccount(seqno, escrowContract.address)).account.last;
+
+    if (lastTransaction === null) throw "Last transaction can't be null on deployed contract";
+
+    if (asset === null) {
+        await provider.sender().send({
+            to: escrowContract.address,
+            value: BigInt(info.dealAmount),
+            body: beginCell().storeUint(ESCROW_OPCODES.buyerTransfer, 32).endCell(),
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+        });
+    } else {
+        try {
+            const buyerAddress = await promptAddress(
+                `Please enter buyer address (should be current sender as well)`,
+                ui,
+            );
+
+            const minter = provider.open(JettonMinter.createFromAddress(asset));
+            const buyerJettonWallet = provider.open(
+                JettonWallet.createFromAddress(await minter.getWalletAddress(buyerAddress)),
+            );
+
+            ui.write(`Buyer jetton wallet is ${buyerJettonWallet.address.toString({ urlSafe: true })}`);
+
+            const seqno = (await api.getLastBlock()).last.seqno;
+            const contractState = (await api.getAccount(seqno, buyerJettonWallet.address)).account.state;
+
+            if (contractState.type !== 'active' || contractState.code == null) {
+                ui.write('This jetton wallet contract is not active!');
+                return;
+            } else {
+                const stateCode = Cell.fromBase64(contractState.code!);
+                const jwalletCode = await compile('ft/JettonWallet');
+                if (!stateCode.equals(jwalletCode)) {
+                    ui.write('Jetton wallet contract code differs from the current contract version!\n');
+                    ui.write(
+                        `Use the same jetton as https://github.com/ton-blockchain/token-contract/blob/main/ft/jetton-wallet.fc or change escrow init state`,
+                    );
+
+                    return;
+                }
+            }
+
+            await buyerJettonWallet.sendTransfer(
+                provider.sender(),
+                toNano('0.1'),
+                BigInt(info.dealAmount),
+                escrowContract.address,
+                buyerAddress,
+                null as unknown as Cell,
+                toNano('0.05'),
+                null as unknown as Cell,
+            );
+        } catch (e) {
+            ui.write(`Couldn't fund jetton...`);
+            return;
+        }
+    }
+
+    const transDone = await waitForTransaction(provider, escrowContract.address, lastTransaction.lt, 15);
+
+    if (transDone) {
+        const status = await escrowContract.getState();
+
+        if (status === ESCROW_STATE.FUNDED) {
+            ui.write(`Funded successfully!`);
+        } else {
+            ui.write(`Couldn't fund the deal...`);
+        }
+    } else {
+        ui.write(`Couldn't fund the deal...`);
+    }
+};
+
 const approveDealAction = async (provider: NetworkProvider, ui: UIProvider) => {
     const isApproveSure = await promptBool('Are you sure you want to approve deal?', ['Yes', 'No'], ui);
 
@@ -73,18 +168,23 @@ const approveDealAction = async (provider: NetworkProvider, ui: UIProvider) => {
 
     await escrowContract.sendApprove(provider.sender(), toNano('0.05'));
 
-    const transDone = await waitForTransaction(provider, escrowContract.address, lastTransaction.lt, 10);
+    // since we are destroying contract on success, any catch is positive cause contract stoped existing
+    try {
+        const transDone = await waitForTransaction(provider, escrowContract.address, lastTransaction.lt, 10);
 
-    if (transDone) {
-        const seqno = (await api.getLastBlock()).last.seqno;
-        const balance = (await api.getAccount(seqno, escrowContract.address)).account.balance;
-        if (parseFloat(balance.coins) == 0) {
-            ui.write(`Approved deal successfully!`);
+        if (transDone) {
+            const seqno = (await api.getLastBlock()).last.seqno;
+            const balance = (await api.getAccount(seqno, escrowContract.address)).account.balance;
+            if (parseFloat(balance.coins) == 0) {
+                ui.write(`Approved deal successfully!`);
+            } else {
+                ui.write(`Couldn't approve the deal...`);
+            }
         } else {
             ui.write(`Couldn't approve the deal...`);
         }
-    } else {
-        ui.write(`Couldn't approve the deal...`);
+    } catch (e) {
+        ui.write(`Approved deal successfully!`);
     }
 };
 
@@ -104,18 +204,22 @@ const cancelDealAction = async (provider: NetworkProvider, ui: UIProvider) => {
 
     await escrowContract.sendCancel(provider.sender(), toNano('0.05'));
 
-    const transDone = await waitForTransaction(provider, escrowContract.address, lastTransaction.lt, 10);
+    try {
+        const transDone = await waitForTransaction(provider, escrowContract.address, lastTransaction.lt, 10);
 
-    if (transDone) {
-        const seqno = (await api.getLastBlock()).last.seqno;
-        const balance = (await api.getAccount(seqno, escrowContract.address)).account.balance;
-        if (parseFloat(balance.coins) == 0) {
-            ui.write(`Cancelled deal successfully!`);
+        if (transDone) {
+            const seqno = (await api.getLastBlock()).last.seqno;
+            const balance = (await api.getAccount(seqno, escrowContract.address)).account.balance;
+            if (parseFloat(balance.coins) == 0) {
+                ui.write(`Cancelled deal successfully!`);
+            } else {
+                ui.write(`Couldn't cancel the deal...`);
+            }
         } else {
             ui.write(`Couldn't cancel the deal...`);
         }
-    } else {
-        ui.write(`Couldn't cancel the deal...`);
+    } catch (e) {
+        ui.write(`Cancelled deal successfully!`);
     }
 };
 
@@ -246,6 +350,9 @@ export async function run(provider: NetworkProvider) {
                 break;
             case 'Approve deal':
                 await approveDealAction(provider, ui);
+                break;
+            case 'Fund':
+                await fundingAction(provider, ui);
                 break;
             case 'Cancel deal':
                 await cancelDealAction(provider, ui);

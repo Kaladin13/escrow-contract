@@ -27,6 +27,7 @@ const op::approve = "op::approve"c;
 const op::cancel = "op::cancel"c; 
 const op::buyer_transfer = "op::buyer_transfer"c;
 const op::top_up = "op::top_up"c;
+const op::change_wallet_code = "op::change_wallet_code"c;
 
 const royalties_constant = 1000; ;; for floating point royalties (up to 3 digits)
 ;; gas consumption constants (could be further optimised)
@@ -153,7 +154,7 @@ int calculate_gauarantor_royalty() inline {
                           .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
                        .end_cell();
 
-    send_raw_message(royalty_msg, 128 + 32); ;; send the remaining balance of contract
+    send_raw_message(royalty_msg, 128 + 32); ;; send the remaining balance of contract, destroy
 }
 
 () handle_approve_jetton() impure {
@@ -177,7 +178,7 @@ int calculate_gauarantor_royalty() inline {
                     .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
                 .end_cell();
 
-    send_raw_message(msg, 128 + 32); ;; refund to buyer & send all remaining
+    send_raw_message(msg, 128 + 32); ;; refund to buyer & send all remaining, destroy
 }
 
 () handle_cancell_jetton() impure {
@@ -201,13 +202,16 @@ int calculate_gauarantor_royalty() inline {
 
     int op = in_msg_body~load_uint(32);
 
+{-
+    buyer_transfer#9451eca9 = BuyerTransfer;
+-}
     if (op == op::buyer_transfer) {
-        throw_unless(400, state == 0 | (~ slice_empty?(asset_address)));
+        throw_unless(400, (state == 0) & slice_empty?(asset_address));
         throw_unless(401, msg_value == deal_amount);
 
         state = 1;
         buyer_address = sender_address;
-        ;; TODO: seller = buyer?
+        ;; seller can be same as buyer, allow it
         save_data();
 
         return ();
@@ -222,7 +226,7 @@ int calculate_gauarantor_royalty() inline {
 -}
 
     if (op == op::transfer_notification()) {
-        throw_unless(400, state == 0 | slice_empty?(asset_address));
+        throw_unless(400, (state == 0) & (~ slice_empty?(asset_address)));
         
         in_msg_body~load_uint(64); ;; skip query id
         int jetton_amount = in_msg_body~load_coins();
@@ -244,8 +248,11 @@ int calculate_gauarantor_royalty() inline {
         return ();
     }
 
+{-
+    approve#e8c15681 = Approve;
+-}
     if (op == op::approve) {
-        throw_unless(403, state == 1 & equal_slices(sender_address, guarantor_address));
+        throw_unless(403, (state == 1) & equal_slices(sender_address, guarantor_address));
 
         ;; send funds to seller, royalties to guarantor
         if (slice_empty?(asset_address)) {
@@ -257,8 +264,11 @@ int calculate_gauarantor_royalty() inline {
         return ();
     }
 
+{-
+    cancel#cc0f2526 = Cancel;
+-}
     if (op == op::cancel) {
-        throw_unless(403, state == 1 & equal_slices(sender_address, guarantor_address));
+        throw_unless(403, (state == 1) & equal_slices(sender_address, guarantor_address));
 
         ;; refund buyer
         if (slice_empty?(asset_address)) {
@@ -269,6 +279,25 @@ int calculate_gauarantor_royalty() inline {
 
         return ();
     }
+
+{-
+    change_wallet_code#9eacde91 new_jwallet_code:^Cell = ChangeWalletCode;
+-}
+
+    if (op == op::change_wallet_code) {
+        throw_unless(400, state == 0 | slice_empty?(asset_address));
+        throw_unless(403, equal_slices(sender_address, seller_address)); ;; only seller can change wallet code
+
+        cell new_jwallet_code = in_msg_body~load_ref();
+        jetton_wallet_code = new_jwallet_code;
+        save_data();
+
+        return ();
+    }
+
+{-
+    top_up#ae98db22 = TopUp;
+-}
 
     if (op == op::top_up) {
         return ();
