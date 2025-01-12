@@ -6,12 +6,7 @@ export const stringAmountToNumber = (amount: string) => {
     return parseInt(toNano(parseFloat(amount)).toString());
 };
 
-export const promptBool = async (
-    prompt: string,
-    options: [string, string],
-    ui: UIProvider,
-    choice: boolean = false,
-) => {
+export const promptBool = async (prompt: string, options: [string, string], ui: UIProvider, choice: boolean = true) => {
     let yes = false;
     let no = false;
     let opts = options.map((o) => o.toLowerCase());

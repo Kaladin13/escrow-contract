@@ -287,7 +287,7 @@ int get_guarator_royalty() method_id {
     return calculate_gauarantor_royalty();
 }
 
-(int, slice, slice, int, slice, int, slice, int, cell) get_escrow_data() method_id {
+(int, slice, slice, int, cell, int, slice, int, cell) get_escrow_data() method_id {
     load_data();
 
     return (
@@ -295,7 +295,7 @@ int get_guarator_royalty() method_id {
         seller_address,
         guarantor_address,
         deal_amount,
-        asset_address,
+        begin_cell().store_slice(asset_address).end_cell(),
         guarantor_royalty_percent,
         buyer_address,
         state,

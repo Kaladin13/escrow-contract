@@ -53,6 +53,7 @@ const getInfo = async (provider: NetworkProvider, ui: UIProvider) => {
     ui.write(`Buyer address is ${info.buyer_address?.toString({ urlSafe: true })}`);
     ui.write(`Deal amount is ${fromNano(info.dealAmount).toString()}`);
     ui.write(`Current deal status is ${info.state === ESCROW_STATE.INIT ? 'INITIALIZED' : 'FUNDED'}`);
+    ui.write(`Guarantor royalty percent is ${info.guarantor_royalty_percent / 1000}%`);
     ui.write(`Deal asset is ${assetInfoStr}`);
 };
 
@@ -75,7 +76,13 @@ const approveDealAction = async (provider: NetworkProvider, ui: UIProvider) => {
     const transDone = await waitForTransaction(provider, escrowContract.address, lastTransaction.lt, 10);
 
     if (transDone) {
-        ui.write(`Approved deal successfully!`);
+        const seqno = (await api.getLastBlock()).last.seqno;
+        const balance = (await api.getAccount(seqno, escrowContract.address)).account.balance;
+        if (parseFloat(balance.coins) == 0) {
+            ui.write(`Approved deal successfully!`);
+        } else {
+            ui.write(`Couldn't approve the deal...`);
+        }
     } else {
         ui.write(`Couldn't approve the deal...`);
     }
@@ -100,7 +107,13 @@ const cancelDealAction = async (provider: NetworkProvider, ui: UIProvider) => {
     const transDone = await waitForTransaction(provider, escrowContract.address, lastTransaction.lt, 10);
 
     if (transDone) {
-        ui.write(`Cancelled deal successfully!`);
+        const seqno = (await api.getLastBlock()).last.seqno;
+        const balance = (await api.getAccount(seqno, escrowContract.address)).account.balance;
+        if (parseFloat(balance.coins) == 0) {
+            ui.write(`Cancelled deal successfully!`);
+        } else {
+            ui.write(`Couldn't cancel the deal...`);
+        }
     } else {
         ui.write(`Couldn't cancel the deal...`);
     }
@@ -128,12 +141,12 @@ export async function run(provider: NetworkProvider) {
                 const guarantorAddress = await promptAddress('Enter guarantor address:', ui);
                 // need to multiply by 1000
                 const royaltyAmount = await promptAmount(
-                    'Enter guarantor royalty amount (percent, up to 3 floating point digits)',
+                    'Enter guarantor royalty amount (percent, up to 3 floating point digits, e.g. 20.25)',
                     ui,
                 );
 
                 // true == ton
-                const isAssetTON = await promptBool('What is the deal asset type?', ['TON', 'Jetton'], ui);
+                const isAssetTON = await promptBool('What is the deal asset type?', ['TON', 'Jetton'], ui, true);
                 let assetCell: Maybe<Cell> = null;
                 let jcodeCell: Maybe<Cell> = null;
 
@@ -148,6 +161,15 @@ export async function run(provider: NetworkProvider) {
                 }
 
                 const royalty = Number(Number(royaltyAmount).toFixed(3)) * 1000;
+                console.log(
+                    ctxId,
+                    stringAmountToNumber(dealAmount),
+                    guarantorAddress,
+                    royalty,
+                    sellerAddress,
+                    assetCell,
+                    jcodeCell,
+                );
 
                 const escrow = provider.open(
                     Escrow.createFromConfig(
@@ -172,7 +194,7 @@ export async function run(provider: NetworkProvider) {
 
                 break;
             case 'Choose existing escrow deal':
-                escrowAddress = await promptAddress('Please enter minter address:', ui);
+                escrowAddress = await promptAddress('Please enter escrow address:', ui);
                 const seqno = (await api.getLastBlock()).last.seqno;
                 const contractState = (await api.getAccount(seqno, escrowAddress)).account.state;
 
