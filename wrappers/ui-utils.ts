@@ -1,5 +1,5 @@
 import { sleep, NetworkProvider, UIProvider } from '@ton/blueprint';
-import { Address, toNano } from '@ton/core';
+import { Address, Cell, toNano } from '@ton/core';
 import { TonClient4 } from '@ton/ton';
 
 export const stringAmountToNumber = (amount: string) => {
@@ -22,6 +22,26 @@ export const promptBool = async (prompt: string, options: [string, string], ui: 
     } while (!(yes || no));
 
     return yes;
+};
+
+export const promptCell = async (prompt: string, ui: UIProvider) => {
+    let retry = false;
+    let input = '';
+    let res: Cell | null = null;
+
+    do {
+        input = await ui.input(prompt);
+        try {
+            res = Cell.fromBase64(input);
+
+            retry = false;
+        } catch (e) {
+            ui.write(input + " doesn't look like a valid cell base64:\n" + e);
+            retry = !(await promptBool('Use anyway?(y/n)', ['y', 'n'], ui));
+        }
+    } while (retry);
+
+    return res;
 };
 
 export const promptUrl = async (prompt: string, ui: UIProvider) => {

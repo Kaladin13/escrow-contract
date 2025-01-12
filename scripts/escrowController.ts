@@ -5,6 +5,7 @@ import {
     promptAddress,
     promptAmount,
     promptBool,
+    promptCell,
     promptNumber,
     stringAmountToNumber,
     waitForTransaction,
@@ -59,8 +60,9 @@ const getInfo = async (provider: NetworkProvider, ui: UIProvider) => {
     ui.write(`Deal asset is ${assetInfoStr}`);
 };
 
-// jetton EQBf3WrpAIEhW6RdyHYrOmzJq1i6uQdIDtwJk7IyxEmi7Hoy
-// ton    EQANoQXO0o6lGjuwj6beIZ4R06vy0zcGBltznFfJKXTKXenH
+// jetton             EQBf3WrpAIEhW6RdyHYrOmzJq1i6uQdIDtwJk7IyxEmi7Hoy
+// jetton with change EQDKzs04n6EFjgjWJKTIKDHR10E5JEK66pZHL2tiO4VcZJjw
+// ton                EQANoQXO0o6lGjuwj6beIZ4R06vy0zcGBltznFfJKXTKXenH
 const fundingAction = async (provider: NetworkProvider, ui: UIProvider) => {
     const info = await escrowContract.getEscrowData();
     const asset = parseAssetAddress(info.assetAddress);
@@ -149,6 +151,39 @@ const fundingAction = async (provider: NetworkProvider, ui: UIProvider) => {
         }
     } else {
         ui.write(`Couldn't fund the deal...`);
+    }
+};
+
+const changeWalletCodeAction = async (provider: NetworkProvider, ui: UIProvider) => {
+    const isApproveSure = await promptBool('Are you sure you want to change wallet code?', ['Yes', 'No'], ui);
+
+    if (!isApproveSure) {
+        return;
+    }
+
+    const api = provider.api() as TonClient4;
+
+    const seqno = (await api.getLastBlock()).last.seqno;
+    const lastTransaction = (await api.getAccount(seqno, escrowContract.address)).account.last;
+
+    if (lastTransaction === null) throw "Last transaction can't be null on deployed contract";
+
+    const newJWalletCode = await promptCell('Please enter new jetton wallet code cell (base64)', ui);
+
+    await escrowContract.sendChangeWalletCode(provider.sender(), toNano('0.05'), newJWalletCode!);
+
+    const transDone = await waitForTransaction(provider, escrowContract.address, lastTransaction.lt, 10);
+
+    if (transDone) {
+        const data = await escrowContract.getEscrowData();
+
+        if (data.jetton_wallet_code?.equals(newJWalletCode!)) {
+            ui.write(`Changed wallet code successfully!`);
+        } else {
+            ui.write(`Couldn't change wallet code...`);
+        }
+    } else {
+        ui.write(`Couldn't change wallet code...`);
     }
 };
 
@@ -265,15 +300,6 @@ export async function run(provider: NetworkProvider) {
                 }
 
                 const royalty = Number(Number(royaltyAmount).toFixed(3)) * 1000;
-                console.log(
-                    ctxId,
-                    stringAmountToNumber(dealAmount),
-                    guarantorAddress,
-                    royalty,
-                    sellerAddress,
-                    assetCell,
-                    jcodeCell,
-                );
 
                 const escrow = provider.open(
                     Escrow.createFromConfig(
@@ -350,6 +376,9 @@ export async function run(provider: NetworkProvider) {
                 break;
             case 'Approve deal':
                 await approveDealAction(provider, ui);
+                break;
+            case 'Change wallet code':
+                await changeWalletCodeAction(provider, ui);
                 break;
             case 'Fund':
                 await fundingAction(provider, ui);
