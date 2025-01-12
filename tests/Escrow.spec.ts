@@ -1,6 +1,6 @@
 import { Blockchain, SandboxContract, TreasuryContract } from '@ton/sandbox';
 import { Address, beginCell, Cell, SendMode, toNano } from '@ton/core';
-import { Escrow, ESCROW_OPCODES, ESCROW_STATE, EscrowConfig } from '../wrappers/Escrow';
+import { Escrow, ESCROW_EXIT_CODES, ESCROW_OPCODES, ESCROW_STATE, EscrowConfig } from '../wrappers/Escrow';
 import '@ton/test-utils';
 import { compile } from '@ton/blueprint';
 import { Maybe } from '@ton/core/dist/utils/maybe';
@@ -241,7 +241,7 @@ describe('Escrow', () => {
             to: escrowContract.address,
             op: Op.transfer_notification,
             success: false,
-            exitCode: 401,
+            exitCode: ESCROW_EXIT_CODES.INCORRECT_FUND_AMOUNT,
         });
 
         const stateAfterFunding = await escrowContract.getState();
@@ -277,7 +277,7 @@ describe('Escrow', () => {
         expect(maliciousFundingResult.transactions).toHaveTransaction({
             to: escrowContract.address,
             aborted: true,
-            exitCode: 402,
+            exitCode: ESCROW_EXIT_CODES.INCORRECT_JETTON,
         });
 
         const stateAfterFunding = await escrowContract.getState();
@@ -313,7 +313,7 @@ describe('Escrow', () => {
         const guaratorRoyalty = await escrowContract.getGuaratorRoyalty();
 
         // 90 percent max threshold
-        expect(BigInt(guaratorRoyalty)).toEqual(dealAmount / 100n * 90n);
+        expect(BigInt(guaratorRoyalty)).toEqual((dealAmount / 100n) * 90n);
     });
 
     // check ton happy path
@@ -440,7 +440,7 @@ describe('Escrow', () => {
             from: buyer.address,
             to: escrowContract.address,
             success: false,
-            exitCode: 403,
+            exitCode: ESCROW_EXIT_CODES.INCORRECT_GUARANTOR,
         });
     });
 
@@ -461,7 +461,7 @@ describe('Escrow', () => {
             from: guarantor.address,
             to: escrowContract.address,
             success: false,
-            exitCode: 403,
+            exitCode: ESCROW_EXIT_CODES.INCORRECT_GUARANTOR,
         });
     });
 
@@ -575,7 +575,7 @@ describe('Escrow', () => {
             to: escrowContract.address,
             op: ESCROW_OPCODES.buyerTransfer,
             success: false,
-            exitCode: 400,
+            exitCode: ESCROW_EXIT_CODES.WRONG_ASSET,
         });
 
         const stateAfterFunding = await escrowContract.getState();
@@ -607,7 +607,7 @@ describe('Escrow', () => {
             to: escrowContract.address,
             op: ESCROW_OPCODES.approve,
             success: false,
-            exitCode: 404, // low fee
+            exitCode: ESCROW_EXIT_CODES.LOW_FEE_BALANCE, // low fee
         });
 
         // top up with enouth ton for execution

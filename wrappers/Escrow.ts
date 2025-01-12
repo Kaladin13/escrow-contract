@@ -33,6 +33,14 @@ export enum ESCROW_STATE {
     FUNDED = 1,
 }
 
+export enum ESCROW_EXIT_CODES {
+    WRONG_ASSET = 400,
+    INCORRECT_FUND_AMOUNT = 401,
+    INCORRECT_JETTON = 402,
+    INCORRECT_GUARANTOR = 403,
+    LOW_FEE_BALANCE = 404,
+}
+
 export function escrowConfigToCell(config: EscrowConfig): Cell {
     return beginCell()
         .storeUint(config.ctxId, 32)

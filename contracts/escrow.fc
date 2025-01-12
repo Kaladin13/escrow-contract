@@ -13,7 +13,7 @@ messages:
     buyer:
         - send funds (ton/jetton)
     guarantor:
-        - accept
+        - approve
         - cancel
     anyone:
         - top up
@@ -207,6 +207,7 @@ int calculate_gauarantor_royalty() inline {
 
         state = 1;
         buyer_address = sender_address;
+        ;; TODO: seller = buyer?
         save_data();
 
         return ();
