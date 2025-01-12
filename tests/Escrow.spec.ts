@@ -300,6 +300,22 @@ describe('Escrow', () => {
         expect(BigInt(guaratorRoyalty)).toEqual(dealAmount / 100n);
     });
 
+    it('should cap max royalty at threshold', async () => {
+        const dealAmount = toNano(1); // 1 ton
+
+        // 101 percent guarator royalty
+        const escrowConfig = generateEscrowConfig(null, dealAmount, 101000);
+
+        const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
+
+        await escrowContract.sendDeploy(deployer.getSender(), toNano('0.05'));
+
+        const guaratorRoyalty = await escrowContract.getGuaratorRoyalty();
+
+        // 90 percent max threshold
+        expect(BigInt(guaratorRoyalty)).toEqual(dealAmount / 100n * 90n);
+    });
+
     // check ton happy path
     it('should allow guarator to approve deal after ton funding', async () => {
         const dealAmount = toNano(1); // 1 ton

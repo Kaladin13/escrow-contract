@@ -11,7 +11,7 @@ params: guarantor_address, deal_amount, guarantor_fee_percent, asset_address, se
 
 messages:
     buyer:
-        - send funds
+        - send funds (ton/jetton)
     guarantor:
         - accept
         - cancel
@@ -29,7 +29,7 @@ const op::buyer_transfer = "op::buyer_transfer"c;
 const op::top_up = "op::top_up"c;
 
 const royalties_constant = 1000; ;; for floating point royalties (up to 3 digits)
-;; gas consumption constants
+;; gas consumption constants (could be further optimised)
 const int fee_per_jetton = 50000000; ;; 0.05 ton
 const int send_fee = 15000000; ;; 0.015 TON
 
@@ -43,6 +43,14 @@ global slice buyer_address; ;; initially null, set after funding
 global int state; ;; 0 - init, 1 - funded
 global cell jetton_wallet_code;
 
+{-
+  Storage
+  storage#_ ctx_id:uint32 seller_address:MsgAddressInt guarantor_address:MsgAddressInt deal_amount:uint64 asset_address:^Cell
+            guarantor_royalty_percent:uint32 buyer_address:(Maybe ^MsgAddressInt)
+            state:uint2 jetton_wallet_code:(Maybe ^Cell) = Storage;
+            
+-}
+
 () load_data() impure {
     slice ds = get_data().begin_parse();
 
@@ -53,7 +61,7 @@ global cell jetton_wallet_code;
 
     cell asset = ds~load_maybe_ref();
     if (null?(asset)) {
-        ;; construct empty slice
+        ;; construct empty slice (to represent ton asset)
         asset_address = begin_cell().end_cell().begin_parse();
     } else {
         ;; set to minter jetton address
@@ -92,7 +100,14 @@ int calculate_gauarantor_royalty() inline {
     ;; use royalties_constant (set to 1_000) to represent
     ;; floating point percents less than 1%
     ;; e.g. 0,05% actual royalty would be 50 in state_init
-    return deal_amount / (100 * royalties_constant) * guarantor_royalty_percent;
+    int percent = guarantor_royalty_percent;
+
+    ;; max royalty percent is 90%
+    if (percent > 90000) {
+        percent = 90000;
+    }
+
+    return deal_amount / (100 * royalties_constant) * percent;
 }
 
 () send_tokens(slice recipient, int amount, int mode) impure {
@@ -196,6 +211,14 @@ int calculate_gauarantor_royalty() inline {
 
         return ();
     }
+
+{-
+  In compliance with https://github.com/ton-blockchain/TIPs/issues/74
+
+  transfer_notification#7362d09c query_id:uint64 amount:(VarUInteger 16) 
+                                 sender:MsgAddress forward_payload:(Either Cell ^Cell)
+                                 = InternalMsgBody;
+-}
 
     if (op == op::transfer_notification()) {
         throw_unless(400, state == 0 | slice_empty?(asset_address));
