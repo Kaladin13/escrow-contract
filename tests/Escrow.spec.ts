@@ -35,7 +35,7 @@ describe('Escrow', () => {
     let lastCtxId = 1;
 
     const generateEscrowConfig = (
-        assetAddress: Maybe<Cell>,
+        assetAddress: Maybe<Address>,
         dealAmount: number | bigint,
         royalty: number,
     ): EscrowConfig => {
@@ -104,14 +104,14 @@ describe('Escrow', () => {
         expect(escrowData.sellerAddress).toEqualAddress(seller.address);
         expect(escrowData.guarantorAddress).toEqualAddress(guarantor.address);
         expect(escrowData.dealAmount).toEqual(100);
-        expect(escrowData.assetAddress).toEqualCell(beginCell().endCell());
+        expect(escrowData.assetAddress).toEqual(null);
         expect(escrowData.jetton_wallet_code).toEqual(null);
         expect(escrowData.buyer_address).toEqual(null);
         expect(escrowData.guarantor_royalty_percent).toEqual(1000);
     });
 
     it('should deploy with correct initial state jetton', async () => {
-        const escrowConfig = generateEscrowConfig(beginCell().storeAddress(jettonMinter.address).endCell(), 100, 1000);
+        const escrowConfig = generateEscrowConfig(jettonMinter.address, 100, 1000);
 
         const escrowContract = blockchain.openContract(Escrow.createFromConfig(escrowConfig, escrowCode));
 
@@ -134,7 +134,7 @@ describe('Escrow', () => {
         expect(escrowData.sellerAddress).toEqualAddress(seller.address);
         expect(escrowData.guarantorAddress).toEqualAddress(guarantor.address);
         expect(escrowData.dealAmount).toEqual(100);
-        expect(escrowData.assetAddress).toEqualCell(beginCell().storeAddress(jettonMinter.address).endCell());
+        expect(escrowData.assetAddress).toEqualAddress(jettonMinter.address);
         expect(escrowData.jetton_wallet_code).toEqualCell(jwalletCode);
         expect(escrowData.buyer_address).toEqual(null);
         expect(escrowData.guarantor_royalty_percent).toEqual(1000);
@@ -175,7 +175,7 @@ describe('Escrow', () => {
         const dealAmount = toNano(5); // 5 jetton
 
         const escrowConfig = generateEscrowConfig(
-            beginCell().storeAddress(jettonMinter.address).endCell(),
+            jettonMinter.address,
             dealAmount,
             1000,
         );
@@ -215,7 +215,7 @@ describe('Escrow', () => {
         const dealAmount = toNano(5); // 5 jetton
 
         const escrowConfig = generateEscrowConfig(
-            beginCell().storeAddress(jettonMinter.address).endCell(),
+            jettonMinter.address,
             dealAmount,
             1000,
         );
@@ -285,7 +285,7 @@ describe('Escrow', () => {
         const dealAmount = toNano(1); // 1 ton
 
         const escrowConfig = generateEscrowConfig(
-            beginCell().storeAddress(jettonMinter.address).endCell(),
+            jettonMinter.address,
             dealAmount,
             1000,
         );
@@ -316,7 +316,7 @@ describe('Escrow', () => {
         const dealAmount = toNano(1); // 1 ton
 
         const escrowConfig = generateEscrowConfig(
-            beginCell().storeAddress(jettonMinter.address).endCell(),
+            jettonMinter.address,
             dealAmount,
             1000,
         );
@@ -342,7 +342,7 @@ describe('Escrow', () => {
         const dealAmount = toNano(1); // 1 ton
 
         const escrowConfig = generateEscrowConfig(
-            beginCell().storeAddress(jettonMinter.address).endCell(),
+            jettonMinter.address,
             dealAmount,
             1000,
         );
@@ -381,7 +381,7 @@ describe('Escrow', () => {
         const dealAmount = toNano(5); // 5 jetton
 
         const escrowConfig = generateEscrowConfig(
-            beginCell().storeAddress(jettonMinter.address).endCell(),
+            jettonMinter.address,
             dealAmount,
             1000,
         );
@@ -495,7 +495,7 @@ describe('Escrow', () => {
 
         // 1 percent guarator royalty
         const escrowConfig = generateEscrowConfig(
-            beginCell().storeAddress(jettonMinter.address).endCell(),
+            jettonMinter.address,
             dealAmount,
             1000,
         );
@@ -635,7 +635,7 @@ describe('Escrow', () => {
 
         // 1 percent guarator royalty
         const escrowConfig = generateEscrowConfig(
-            beginCell().storeAddress(jettonMinter.address).endCell(),
+            jettonMinter.address,
             dealAmount,
             1000,
         );
@@ -682,7 +682,7 @@ describe('Escrow', () => {
 
         // set asset to jetton on deploy
         const escrowConfig = generateEscrowConfig(
-            beginCell().storeAddress(jettonMinter.address).endCell(),
+            jettonMinter.address,
             dealAmount,
             1000,
         );

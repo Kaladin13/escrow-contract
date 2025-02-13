@@ -7,7 +7,6 @@ import {
     ContractProvider,
     Sender,
     SendMode,
-    Slice,
 } from '@ton/core';
 import { Maybe } from '@ton/core/dist/utils/maybe';
 
@@ -16,7 +15,7 @@ export type EscrowConfig = {
     sellerAddress: Address;
     guarantorAddress: Address;
     dealAmount: number;
-    assetAddress: Maybe<Cell>;
+    assetAddress: Maybe<Address>;
     guarantorRoyaltyPercent: number;
     jettonWalletCode: Maybe<Cell>;
 };
@@ -43,17 +42,21 @@ export enum ESCROW_EXIT_CODES {
 }
 
 export function escrowConfigToCell(config: EscrowConfig): Cell {
-    return beginCell()
+    const initCell = beginCell()
         .storeUint(config.ctxId, 32)
         .storeAddress(config.sellerAddress)
         .storeAddress(config.guarantorAddress)
         .storeUint(config.dealAmount, 64)
-        .storeMaybeRef(config.assetAddress)
+        .storeAddress(config.assetAddress);
+
+    const cell2 = beginCell()
         .storeUint(config.guarantorRoyaltyPercent, 32)
         .storeAddress(null)
         .storeUint(0, 2)
         .storeMaybeRef(config.jettonWalletCode)
         .endCell();
+
+    return initCell.storeRef(cell2).endCell();
 }
 
 export class Escrow implements Contract {
@@ -132,7 +135,7 @@ export class Escrow implements Contract {
             sellerAddress: stack.readAddress(),
             guarantorAddress: stack.readAddress(),
             dealAmount: stack.readNumber(),
-            assetAddress: stack.readCell(),
+            assetAddress: stack.readAddressOpt(),
             guarantor_royalty_percent: stack.readNumber(),
             buyer_address: stack.readAddressOpt(),
             state: stack.readNumber() as ESCROW_STATE,

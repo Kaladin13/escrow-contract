@@ -38,7 +38,7 @@ global int ctx_id; ;; for address salt
 global slice seller_address;
 global slice guarantor_address;
 global int deal_amount;
-global slice asset_address; ;; empty slice to represent ton, minter jetton address otherwise
+global slice asset_address; ;; null slice to represent ton, minter jetton address otherwise
 global int guarantor_royalty_percent; ;; see calculate_gauarantor_royalty
 global slice buyer_address; ;; initially null, set after funding
 global int state; ;; 0 - init, 1 - funded
@@ -60,39 +60,41 @@ global cell jetton_wallet_code;
     guarantor_address = ds~load_msg_addr();
     deal_amount = ds~load_uint(64);
 
-    cell asset = ds~load_maybe_ref();
-    if (null?(asset)) {
-        ;; construct empty slice (to represent ton asset)
-        asset_address = begin_cell().end_cell().begin_parse();
+    if (ds.preload_uint(2) != 0) {
+        asset_address = ds~load_msg_addr();
     } else {
-        ;; set to minter jetton address
-        slice parsed_asset = asset.begin_parse();
-        asset_address = parsed_asset~load_msg_addr();
+        ds~skip_bits(2);
+        asset_address = null();
     }
 
-    guarantor_royalty_percent = ds~load_uint(32);
-    buyer_address = ds~load_msg_addr();
-    state = ds~load_uint(2);
-    jetton_wallet_code = ds~load_maybe_ref();
+    slice ds2 = ds~load_ref().begin_parse();
+    guarantor_royalty_percent = ds2~load_uint(32);
+    buyer_address = ds2~load_msg_addr();
+    state = ds2~load_uint(2);
+    jetton_wallet_code = ds2~load_maybe_ref();
 }
 
 () save_data() impure inline {
-    cell asset = null();
-    
-    if (~ slice_empty?(asset_address)) {
-        asset = begin_cell().store_slice(asset_address).end_cell();
+    builder b = begin_cell()
+                    .store_uint(ctx_id, 32)
+                    .store_slice(seller_address)
+                    .store_slice(guarantor_address)
+                    .store_uint(deal_amount, 64);
+
+    if (null?(asset_address)) {
+        b = b.store_uint(0, 2);
+    } else {
+        b = b.store_slice(asset_address);
     }
 
-    set_data(begin_cell()
-                .store_uint(ctx_id, 32)
-                .store_slice(seller_address)
-                .store_slice(guarantor_address)
-                .store_uint(deal_amount, 64)
-                .store_maybe_ref(asset)
-                .store_uint(guarantor_royalty_percent, 32)
-                .store_slice(buyer_address)
-                .store_uint(state, 2)
-                .store_maybe_ref(jetton_wallet_code)
+    cell b2 = begin_cell()
+                    .store_uint(guarantor_royalty_percent, 32)
+                    .store_slice(buyer_address)
+                    .store_uint(state, 2)
+                    .store_maybe_ref(jetton_wallet_code)
+                .end_cell();
+
+    set_data(b.store_ref(b2)
             .end_cell()
     );
 }
@@ -206,7 +208,8 @@ int calculate_gauarantor_royalty() inline {
     buyer_transfer#9451eca9 = BuyerTransfer;
 -}
     if (op == op::buyer_transfer) {
-        throw_unless(400, (state == 0) & slice_empty?(asset_address));
+        throw_unless(400, state == 0);
+        throw_unless(400, null?(asset_address));
         throw_unless(401, msg_value == deal_amount);
 
         state = 1;
@@ -226,8 +229,9 @@ int calculate_gauarantor_royalty() inline {
 -}
 
     if (op == op::transfer_notification()) {
-        throw_unless(400, (state == 0) & (~ slice_empty?(asset_address)));
-        
+        throw_unless(400, state == 0);
+        throw_unless(400, (~ null?(asset_address)));
+
         in_msg_body~load_uint(64); ;; skip query id
         int jetton_amount = in_msg_body~load_coins();
         slice from_address = in_msg_body~load_msg_addr();
@@ -252,10 +256,11 @@ int calculate_gauarantor_royalty() inline {
     approve#e8c15681 = Approve;
 -}
     if (op == op::approve) {
-        throw_unless(403, (state == 1) & equal_slices(sender_address, guarantor_address));
+        throw_unless(403, (state == 1));
+        throw_unless(403, equal_slices(sender_address, guarantor_address));
 
         ;; send funds to seller, royalties to guarantor
-        if (slice_empty?(asset_address)) {
+        if (null?(asset_address)) {
             handle_approve_ton();
         } else {
             handle_approve_jetton();
@@ -268,10 +273,11 @@ int calculate_gauarantor_royalty() inline {
     cancel#cc0f2526 = Cancel;
 -}
     if (op == op::cancel) {
-        throw_unless(403, (state == 1) & equal_slices(sender_address, guarantor_address));
+        throw_unless(403, state == 1);
+        throw_unless(403, equal_slices(sender_address, guarantor_address));
 
         ;; refund buyer
-        if (slice_empty?(asset_address)) {
+        if (null?(asset_address)) {
             handle_cancell_ton();
         } else {
             handle_cancell_jetton();
@@ -285,7 +291,7 @@ int calculate_gauarantor_royalty() inline {
 -}
 
     if (op == op::change_wallet_code) {
-        throw_unless(400, state == 0 | slice_empty?(asset_address));
+        throw_unless(400, state == 0 | null?(asset_address));
         throw_unless(403, equal_slices(sender_address, seller_address)); ;; only seller can change wallet code
 
         cell new_jwallet_code = in_msg_body~load_ref();
@@ -316,7 +322,7 @@ int get_guarator_royalty() method_id {
     return calculate_gauarantor_royalty();
 }
 
-(int, slice, slice, int, cell, int, slice, int, cell) get_escrow_data() method_id {
+(int, slice, slice, int, slice, int, slice, int, cell) get_escrow_data() method_id {
     load_data();
 
     return (
@@ -324,7 +330,7 @@ int get_guarator_royalty() method_id {
         seller_address,
         guarantor_address,
         deal_amount,
-        begin_cell().store_slice(asset_address).end_cell(),
+        asset_address,
         guarantor_royalty_percent,
         buyer_address,
         state,
